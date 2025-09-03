@@ -1,0 +1,65 @@
+version: 2.1
+
+orbs:
+  snyk: snyk/snyk@2.2.0
+
+jobs:
+  build-and-test:
+    docker:
+      - image: cimg/openjdk:21.0
+    steps:
+      - checkout
+      - run:
+          name: Build
+          command: mvn -B -X -DskipTests clean package
+      - run:
+          name: Test
+          command: mvn test
+      # Snyk SAST Scan
+      - snyk/scan:
+          fail-on-issues: false
+          monitor-on-build: true
+          project: WebGoat/main-app
+          severity-threshold: high
+          token-variable: SNYK_TOKEN
+      # Snyk SCA Scan
+      - snyk/scan:
+          command: test --all-projects
+          fail-on-issues: false
+          monitor-on-build: true
+          project: WebGoat/main-app
+          severity-threshold: high
+          token-variable: SNYK_TOKEN
+          additional-arguments: --dep-graph
+      - snyk/scan:
+          command: iac test
+          fail-on-issues: false
+          monitor-on-build: true
+          project: WebGoat/infrastructure
+          severity-threshold: high
+          token-variable: SNYK_TOKEN
+          additional-arguments: --report --target-directory=infrastructure/
+
+  secret-scan:
+    docker:
+      - image: zricethezav/gitleaks:latest
+    steps:
+      - checkout
+      - run:
+          name: Run Gitleaks
+          command: |
+            gitleaks detect \
+              --source . \
+              --verbose \
+              --report-path gitleaks-report.json \
+              --no-git \
+              --exit-code 0
+      - store_artifacts:
+          path: gitleaks-report.json
+          destination: gitleaks-report.json
+
+workflows:
+  security-checks:
+    jobs:
+      - build-and-test
+      - secret-scan
